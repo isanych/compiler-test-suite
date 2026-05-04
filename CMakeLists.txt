@@ -1,3 +1,73 @@
+# Standalone mode: provide LLVM test-suite function stubs when built as a
+# top-level project (i.e. not embedded inside the LLVM test-suite).
+# Guard on llvm_singlesource being undefined — the LLVM test-suite defines it
+# before including this directory, so this block is a no-op there.
+if(NOT COMMAND llvm_singlesource)
+  cmake_minimum_required(VERSION 3.15)
+  project(FujitsuCompilerTestSuite C CXX)
+
+  # Emit compile_commands.json so every compiler invocation (with all flags) is
+  # captured — the primary goal of the standalone build.
+  set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+  # Replicate the platform variables that the LLVM test-suite normally provides.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(LINUX TRUE)
+  endif()
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|AARCH64)$")
+    set(ARCH "AArch64")
+  else()
+    set(ARCH "${CMAKE_SYSTEM_PROCESSOR}")
+  endif()
+
+  # In standalone mode default to building on the current platform regardless of
+  # the AArch64 guard at the bottom of this file.
+  set(TEST_SUITE_FUJITSU_FORCE_UNSUPPORTED_PLATFORM ON CACHE BOOL
+      "Force enable on unsupported platforms (always ON in standalone mode)" FORCE)
+
+  # Fortran support requires extra setup; disable by default in standalone mode.
+  if(NOT DEFINED TEST_SUITE_FORTRAN)
+    set(TEST_SUITE_FORTRAN OFF CACHE BOOL "Enable Fortran tests")
+  endif()
+
+  # basename(<var> <source>) — filename component without extension.
+  macro(basename var source)
+    get_filename_component(${var} "${source}" NAME_WE)
+  endmacro()
+
+  # Compile a single source into an OBJECT library (no link step).
+  function(llvm_test_executable_no_test target)
+    add_library(${target} OBJECT ${ARGN})
+  endfunction()
+
+  # Compile each source file in the current directory as a separate OBJECT target.
+  function(llvm_singlesource)
+    cmake_parse_arguments(_LS "" "PREFIX" "" ${ARGN})
+    if(DEFINED Source)
+      set(_sources ${Source})
+    else()
+      file(GLOB _sources *.c *.cpp *.cc)
+    endif()
+    foreach(_src ${_sources})
+      basename(_name ${_src})
+      llvm_test_executable_no_test(${_LS_PREFIX}${_name} ${_src})
+    endforeach()
+  endfunction()
+
+  # Compile multiple sources into a single OBJECT target (no link step).
+  function(llvm_multisource target)
+    set(_sources ${ARGN})
+    if(NOT _sources)
+      file(GLOB _sources *.c *.cpp *.cc)
+    endif()
+    add_library(${target} OBJECT ${_sources})
+  endfunction()
+
+  # Register test data files for a target — no-op in compile-only mode.
+  function(llvm_test_data target)
+  endfunction()
+endif()
+
 # Put Fortran module files in separate directories.
 #
 # Several Fortran tests build modules with the same name at build-time.
